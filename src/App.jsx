@@ -4,6 +4,16 @@ import {
   Play, CheckCircle, Trash2, Plus, AlertCircle, RefreshCw, 
   ChefHat, Globe, Layers, X, Sparkles 
 } from 'lucide-react';
+import RecipeCard from './components/RecipeCard';
+import LoadingSpinner from './components/LoadingSpinner';
+import SearchBar from './components/SearchBar';
+
+import {
+  searchMeals,
+  getMealsByCategory,
+  getMealsByArea,
+  getMealDetails
+} from './services/mealService';
 
 export default function App() {
   // Navigation & View States
@@ -74,53 +84,51 @@ export default function App() {
   };
 
   // Main meal fetching function
-  const fetchMeals = async (query = '', category = '', area = '') => {
-    setLoading(true);
-    setError(null);
-    try {
-      let url = 'https://www.themealdb.com/api/json/v1/1/search.php?s=';
-      
-      if (category) {
-        url = `https://www.themealdb.com/api/json/v1/1/filter.php?c=${category}`;
-      } else if (area) {
-        url = `https://www.themealdb.com/api/json/v1/1/filter.php?a=${area}`;
-      } else if (query.trim() !== '') {
-        url = `https://www.themealdb.com/api/json/v1/1/search.php?s=${encodeURIComponent(query)}`;
-      }
+ 
+const fetchMeals = async (query = '', category = '', area = '') => {
+  setLoading(true);
+  setError(null);
 
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      
-      const data = await response.json();
-      setMeals(data.meals || []);
-    } catch (err) {
-      setError(err.message || 'Failed to fetch recipes. Please check your network connection.');
-      setMeals([]);
-    } finally {
-      setLoading(false);
+  try {
+    let results;
+
+    if (category) {
+      results = await getMealsByCategory(category);
+    } else if (area) {
+      results = await getMealsByArea(area);
+    } else {
+      results = await searchMeals(query);
     }
-  };
+
+    setMeals(results);
+  } catch (err) {
+    setError(
+      err.message || 'Failed to fetch recipes. Please check your network connection.'
+    );
+    setMeals([]);
+  } finally {
+    setLoading(false);
+  }
+};
 
   // Fetch full details of a specific meal
-  const fetchMealDetails = async (id) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`https://www.themealdb.com/api/json/v1/1/lookup.php?i=${id}`);
-      const data = await res.json();
-      if (data.meals && data.meals[0]) {
-        setSelectedMeal(data.meals[0]);
-        setSelectedMealId(id);
-        setCurrentTab('details');
-      } else {
-        throw new Error('Meal details not found.');
-      }
-    } catch (err) {
-      setError('Could not load recipe details. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
+ 
+const fetchMealDetails = async (id) => {
+  setLoading(true);
+  setError(null);
+
+  try {
+    const meal = await getMealDetails(id);
+
+    setSelectedMeal(meal);
+    setSelectedMealId(id);
+    setCurrentTab('details');
+  } catch (err) {
+    setError('Could not load recipe details. Please try again.');
+  } finally {
+    setLoading(false);
+  }
+};
 
   // Handle Search Input Submission
   const handleSearchSubmit = (e) => {
@@ -321,24 +329,16 @@ export default function App() {
                 </p>
 
                 {/* Search Form */}
-                <form onSubmit={handleSearchSubmit} className="flex items-center bg-white rounded-2xl p-2 shadow-lg mt-6">
-                  <div className="pl-4 text-stone-400">
-                    <Search className="w-5 h-5" />
-                  </div>
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search by recipe name (e.g. Chicken, Pasta, Curry)..."
-                    className="w-full px-3 py-2 text-stone-800 placeholder-stone-400 focus:outline-none text-sm sm:text-base bg-transparent"
-                  />
-                  <button
-                    type="submit"
-                    className="bg-orange-600 hover:bg-orange-700 text-white px-6 py-3 rounded-xl font-bold transition-all shadow-md shadow-orange-600/30 text-sm sm:text-base"
-                  >
-                    Search
-                  </button>
-                </form>
+                <SearchBar
+  value={searchQuery}
+  onChange={setSearchQuery}
+  onSearch={() => {
+    setActiveCategory('');
+    setActiveArea('');
+    fetchMeals(searchQuery, '', '');
+  }}
+/>
+      
               </div>
             </div>
 
@@ -465,88 +465,33 @@ export default function App() {
                 </div>
               )}
 
+             
               {/* Meals Grid */}
               {!loading && !error && meals && meals.length > 0 && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
                   {meals.map((meal) => {
-                    const isFav = favorites.some((f) => f.idMeal === meal.idMeal);
+                    const isFav = favorites.some(
+                      (f) => f.idMeal === meal.idMeal
+                    );
+
                     return (
-                      <div
+                      <RecipeCard
                         key={meal.idMeal}
-                        className="group bg-white rounded-3xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 border border-stone-200/80 flex flex-col justify-between"
-                      >
-                        <div className="relative overflow-hidden aspect-video cursor-pointer" onClick={() => fetchMealDetails(meal.idMeal)}>
-                          <img
-                            src={meal.strMealThumb}
-                            alt={meal.strMeal}
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                          />
-                          <div className="absolute inset-0 bg-gradient-to-t from-stone-900/60 via-transparent to-transparent opacity-80"></div>
-                          
-                          {/* Category Badge */}
-                          {meal.strCategory && (
-                            <span className="absolute top-3 left-3 bg-white/90 backdrop-blur-md text-stone-900 font-bold text-xs px-3 py-1 rounded-full shadow">
-                              {meal.strCategory}
-                            </span>
-                          )}
-
-                          {/* Favorite Button */}
-                          <button
-                            onClick={(e) => { e.stopPropagation(); toggleFavorite(meal); }}
-                            className={`absolute top-3 right-3 p-2.5 rounded-full backdrop-blur-md transition-all ${
-                              isFav
-                                ? 'bg-red-500 text-white shadow-lg shadow-red-500/30'
-                                : 'bg-white/80 text-stone-700 hover:bg-white'
-                            }`}
-                          >
-                            <Heart className={`w-4 h-4 ${isFav ? 'fill-white' : ''}`} />
-                          </button>
-
-                          {meal.strArea && (
-                            <span className="absolute bottom-3 left-3 text-white text-xs font-medium flex items-center space-x-1 bg-black/40 px-2.5 py-1 rounded-lg backdrop-blur-sm">
-                              <Globe className="w-3 h-3 text-amber-400" />
-                              <span>{meal.strArea}</span>
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Card Content */}
-                        <div className="p-5 flex flex-col flex-1 justify-between space-y-4">
-                          <h4
-                            onClick={() => fetchMealDetails(meal.idMeal)}
-                            className="font-bold text-stone-900 text-base leading-snug cursor-pointer hover:text-orange-600 transition-colors line-clamp-2"
-                          >
-                            {meal.strMeal}
-                          </h4>
-
-                          <div className="flex items-center justify-between pt-2 border-t border-stone-100">
-                            <button
-                              onClick={() => fetchMealDetails(meal.idMeal)}
-                              className="text-xs font-bold text-orange-600 hover:text-orange-700 flex items-center space-x-1"
-                            >
-                              <span>View Recipe</span>
-                              <span>&rarr;</span>
-                            </button>
-                            <button
-                              onClick={() => fetchMealDetails(meal.idMeal)}
-                              className="bg-orange-50 hover:bg-orange-100 text-orange-700 p-2 rounded-xl transition-all"
-                              title="Quick View"
-                            >
-                              <BookOpen className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
+                        meal={meal}
+                        onSelect={fetchMealDetails}
+                        isFavorite={isFav}
+                        onToggleFavorite={toggleFavorite}
+                      />
                     );
                   })}
                 </div>
               )}
             </div>
-
           </div>
         )}
 
         {/* VIEW 2: RECIPE DETAIL VIEW */}
+
         {currentTab === 'details' && selectedMeal && (
           <div className="space-y-8 max-w-5xl mx-auto animate-fadeIn">
             
